@@ -9,15 +9,17 @@
 #   4. Let the test's exit code decide pass/fail for the build.
 #   5. Always capture evidence (logs/artifacts) regardless of outcome.
 #
-# This workflow is deliberately written against DVWA (an intentionally
-# vulnerable training app) so you can see BOTH outcomes:
-#   - security=low  -> the gate SHOULD fail (exit 1) -- vuln is present
-#   - security=high -> the gate SHOULD pass (exit 0) -- DVWA patches it
+# This workflow runs TWO independent regression tests (LFI and SQLi)
+# against the same DVWA instance, deliberately written so you can see
+# BOTH outcomes per test:
+#   - security=low  -> the gate SHOULD fail (exit 1) -- vulns are present
+#   - security=high -> the gate SHOULD pass (exit 0) -- DVWA patches them
 #
 # Trigger it manually from the Actions tab and pick the level you want
-# to test -- no need to edit this file to flip between them.
+# to test -- no need to edit this file to flip between them. The gate
+# only passes if BOTH tests come back clean.
 
-name: DVWA LFI Security Gate
+name: DVWA Security Gate
 
 on:
   push:
@@ -37,7 +39,7 @@ on:
           - impossible
 
 jobs:
-  lfi-regression-test:
+  security-regression-tests:
     runs-on: ubuntu-latest
 
     # The service container: GitHub Actions starts this alongside the job
@@ -102,6 +104,17 @@ jobs:
             --security-level "${SECURITY_LEVEL}"
         continue-on-error: true   # capture the exit code instead of failing the step immediately
 
+      - name: Run SQLi security regression test
+        id: sqli_test
+        env:
+          SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
+        run: |
+          echo "Testing at security level: ${SECURITY_LEVEL}"
+          python3 dvwa_sqli_regression_test.py \
+            --base-url http://localhost:8080 \
+            --security-level "${SECURITY_LEVEL}"
+        continue-on-error: true   # same reasoning as the LFI step -- capture, don't fail yet
+
       - name: Upload test output as build evidence
         if: always()   # run this even if the test step "failed" -- evidence matters most then
         uses: actions/upload-artifact@v4
@@ -112,15 +125,31 @@ jobs:
           retention-days: 14
 
       - name: Enforce the security gate
-        # This is the actual gate: translate the script's exit code into
-        # the CI job's pass/fail. Separating this from the test step above
-        # means you can always capture logs/artifacts first, then decide
-        # whether to fail the build -- rather than losing evidence the
-        # moment something goes red.
+        # This is the actual gate: translate each test's exit code into the
+        # CI job's pass/fail. Separating this from the test steps above
+        # means we always capture logs/artifacts for BOTH tests first, then
+        # decide whether to fail the build -- rather than stopping at the
+        # first red result and never finding out about the second.
         run: |
+          GATE_FAILED=0
+
           if [ "${{ steps.lfi_test.outcome }}" = "failure" ]; then
-            echo "::error::LFI vulnerability confirmed -- failing the build."
+            echo "::error::LFI vulnerability confirmed."
+            GATE_FAILED=1
+          else
+            echo "No LFI leak detected."
+          fi
+
+          if [ "${{ steps.sqli_test.outcome }}" = "failure" ]; then
+            echo "::error::SQL Injection vulnerability confirmed."
+            GATE_FAILED=1
+          else
+            echo "No SQLi leak detected."
+          fi
+
+          if [ "$GATE_FAILED" -eq 1 ]; then
+            echo "::error::One or more security regression tests failed -- failing the build."
             exit 1
           else
-            echo "No LFI leak detected -- gate passed."
+            echo "All security regression tests passed -- gate passed."
           fi
