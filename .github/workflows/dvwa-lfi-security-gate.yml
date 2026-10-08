@@ -1,0 +1,126 @@
+# .github/workflows/dvwa-lfi-security-gate.yml
+#
+# DevSecOps example: a security regression test wired in as a CI gate.
+#
+# What this demonstrates (the core DevSecOps automation pattern):
+#   1. Spin up the target application as an ephemeral service container.
+#   2. Wait for it to be ready (health check / readiness polling).
+#   3. Run a security test against it as a normal CI step.
+#   4. Let the test's exit code decide pass/fail for the build.
+#   5. Always capture evidence (logs/artifacts) regardless of outcome.
+#
+# This workflow is deliberately written against DVWA (an intentionally
+# vulnerable training app) so you can see BOTH outcomes:
+#   - security=low  -> the gate SHOULD fail (exit 1) -- vuln is present
+#   - security=high -> the gate SHOULD pass (exit 0) -- DVWA patches it
+#
+# Trigger it manually from the Actions tab and pick the level you want
+# to test -- no need to edit this file to flip between them.
+
+name: DVWA LFI Security Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      security_level:
+        description: "DVWA security level to test against"
+        required: true
+        default: "low"
+        type: choice
+        options:
+          - low
+          - medium
+          - high
+          - impossible
+
+jobs:
+  lfi-regression-test:
+    runs-on: ubuntu-latest
+
+    # The service container: GitHub Actions starts this alongside the job
+    # and tears it down automatically when the job ends. This is the CI
+    # equivalent of `docker run` -- no manual cleanup needed.
+    services:
+      dvwa:
+        image: vulnerables/web-dvwa
+        ports:
+          - 8080:80
+        # No official healthcheck in this image, so we poll manually below
+        # instead of relying on `options: --health-cmd`.
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Wait for DVWA to be ready
+        run: |
+          echo "Polling http://localhost:8080/login.php ..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/login.php > /dev/null; then
+              echo "DVWA is up after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::DVWA did not become ready in time"
+          exit 1
+
+      - name: Initialize DVWA database
+        # DVWA needs its DB created once before login works -- this is the
+        # same "setup.php -> Create/Reset Database" step you did manually,
+        # just automated as an HTTP POST so CI can do it unattended.
+        run: |
+          curl -s -c cookies.txt http://localhost:8080/setup.php -o setup_page.html
+          TOKEN=$(grep -oP "name='user_token' value='\K[a-f0-9]+" setup_page.html)
+          curl -s -b cookies.txt -X POST http://localhost:8080/setup.php \
+            --data-urlencode "create_db=Create / Reset Database" \
+            --data-urlencode "user_token=${TOKEN}" > /dev/null
+          echo "Database initialized."
+
+      - name: Run LFI security regression test
+        id: lfi_test
+        env:
+          # workflow_dispatch gives us the picked value; push/pull_request
+          # triggers have no input, so default to "low" -- the worst case,
+          # which is the right default for an unattended regression gate.
+          SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
+        run: |
+          echo "Testing at security level: ${SECURITY_LEVEL}"
+          python3 dvwa_lfi_regression_test.py \
+            --base-url http://localhost:8080 \
+            --security-level "${SECURITY_LEVEL}"
+        continue-on-error: true   # capture the exit code instead of failing the step immediately
+
+      - name: Upload test output as build evidence
+        if: always()   # run this even if the test step "failed" -- evidence matters most then
+        uses: actions/upload-artifact@v4
+        with:
+          name: lfi-test-output
+          path: |
+            setup_page.html
+          retention-days: 14
+
+      - name: Enforce the security gate
+        # This is the actual gate: translate the script's exit code into
+        # the CI job's pass/fail. Separating this from the test step above
+        # means you can always capture logs/artifacts first, then decide
+        # whether to fail the build -- rather than losing evidence the
+        # moment something goes red.
+        run: |
+          if [ "${{ steps.lfi_test.outcome }}" = "failure" ]; then
+            echo "::error::LFI vulnerability confirmed -- failing the build."
+            exit 1
+          else
+            echo "No LFI leak detected -- gate passed."
+          fi
