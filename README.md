@@ -27,10 +27,10 @@ They're intentionally split. A single workflow that both fails on findings *and*
 
  ## Running locally
 
-Requires Docker, Python 3.10+, and the `requests` package (`pip install requests`).
+ Requires Docker, Python 3.10+, and the `requests` package (`pip install requests`).
 
 ```bash
- git clone https://github.com/UmarZukhran/dvwa-gate.git
+ git clone git@github.com:UmarZukhran/dvwa-gate.git
  cd dvwa-gate
 ```
 
@@ -39,7 +39,20 @@ Requires Docker, Python 3.10+, and the `requests` package (`pip install requests
  ./run-security-gate-local.sh
 ```
 
-## A note on the open Security tab alerts
+Override the security level with the `SECURITY_LEVEL` env var (defaults to `low`):
+
+```bash
+SECURITY_LEVEL=medium ./run-security-gate-local.sh
+SECURITY_LEVEL=high ./run-security-gate-local.sh
+```
+
+| Level | LFI | SQLi | CMDi |
+|---|---|---|---|
+| `low` | Confirmed | Confirmed | Confirmed |
+| `medium` | **Still confirmed** — DVWA's medium filter only blocks RFI (`http://`-prefixed) payloads, not local path traversal | Blocked | Blocked |
+| `high` | Blocked | Blocked | Blocked |
+
+ ## A note on the open Security tab alerts
 
 This repo's Security tab shows open "Error" alerts for LFI, SQLi, and Command Injection. **That's expected, not a problem to fix** — DVWA is deliberately vulnerable at `security=low`, and these alerts are proof the SARIF reporting pipeline correctly detects and reports real findings. They're left open intentionally to demonstrate the tooling works end-to-end, not because anything here is meant to be "fixed."
 
