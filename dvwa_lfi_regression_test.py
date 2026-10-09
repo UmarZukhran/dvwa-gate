@@ -29,6 +29,7 @@ workflow -- e.g. invert the exit code in CI config if 0 should mean
 training image.
 """
 
+from __future__ import annotations
 import re
 import sys
 import argparse

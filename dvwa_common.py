@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-
+from __future__ import annotations
 import re
 import sys
 import argparse
 from urllib.parse import urljoin
-from __future__ import annotations
 
 import requests
 

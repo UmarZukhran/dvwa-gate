@@ -25,6 +25,7 @@ Exit codes:
     2 -> Script/environment error (couldn't log in, target unreachable, etc.)
 """
 
+from __future__ import annotations
 import re
 import sys
 import argparse
