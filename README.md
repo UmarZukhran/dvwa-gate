@@ -25,11 +25,13 @@ Adding a new vulnerability class only requires writing one test script and addin
 
 They're intentionally split. A single workflow that both fails on findings *and* uploads SARIF confuses GitHub's code-scanning status page — it interprets "workflow failed" as "scanning is misconfigured," even when the failure is the gate correctly doing its job. Real security pipelines separate **gating** (should this merge be blocked?) from **reporting** (what did we find, tracked over time?) for the same reason.
 
-## Running locally
+ ## Running locally
+
+Requires Docker, Python 3.10+, and the `requests` package (`pip install requests`).
 
 ```bash
-docker run -d --name dvwa-security-gate -p 8080:80 vulnerables/web-dvwa
-./run-security-gate-local.sh
+ git clone git@github.com:UmarZukhran/dvwa-gate.git
+ cd dvwa-gate
 ```
 
 ## A note on the open Security tab alerts
