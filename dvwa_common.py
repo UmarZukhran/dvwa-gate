@@ -7,6 +7,8 @@ from urllib.parse import urljoin
 
 import requests
 
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080"
 DEFAULT_USERNAME = "admin"
