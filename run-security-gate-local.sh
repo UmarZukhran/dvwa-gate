@@ -5,12 +5,13 @@ IMAGE="vulnerables/web-dvwa"
 CONTAINER_NAME="dvwa-security-gate"
 PORT="8080"
 BASE_URL="http://127.0.0.1:${PORT}"
+SECURITY_LEVEL="${SECURITY_LEVEL:-low}"
 
 cleanup() {
   echo "[*] Tearing down ${CONTAINER_NAME}..."
   docker rm -f "${CONTAINER_NAME}" > /dev/null 2>&1
 }
-trap cleanup EXIT   # always runs, even if a step below fails or you Ctrl+C
+trap cleanup EXIT
 
 echo "[*] Starting ${IMAGE} as ${CONTAINER_NAME} on port ${PORT}..."
 docker run -d --name "${CONTAINER_NAME}" -p "${PORT}:80" "${IMAGE}" > /dev/null
@@ -39,42 +40,5 @@ curl -s -b "${COOKIE_JAR}" -X POST "${BASE_URL}/setup.php" \
 rm -f "${COOKIE_JAR}" "${SETUP_PAGE}"
 echo "[*] Database initialized."
 
-# --- Run each regression test, track results independently ---
-declare -A RESULTS
-
-run_test() {
-  local label="$1"
-  local script="$2"
-
-  echo ""
-  echo "[*] Running ${label} security regression test..."
-  python3 "${script}" --base-url "${BASE_URL}"
-  local exit_code=$?
-  RESULTS["${label}"]=$exit_code
-
-  case $exit_code in
-    0) echo "[PASS] No ${label} leak/exploit detected." ;;
-    1) echo "[FAIL] ${label} vulnerability confirmed." ;;
-    *) echo "[ERROR] ${label} test script errored (exit ${exit_code})." ;;
-  esac
-}
-
-run_test "LFI"  "dvwa_lfi_regression_test.py"
-run_test "SQLi" "dvwa_sqli_regression_test.py"
-run_test "CMDi" "dvwa_cmdi_regression_test.py"
-
-# --- Summary ---
-echo ""
-echo "======================================"
-echo " Security Gate Summary"
-echo "======================================"
-OVERALL_EXIT=0
-for label in "${!RESULTS[@]}"; do
-  code=${RESULTS[$label]}
-  if [ "$code" -ne 0 ]; then
-    OVERALL_EXIT=1
-  fi
-  printf "  %-6s exit=%s\n" "$label" "$code"
-done
-echo "======================================"
-
+python3 run_security_gate.py --base-url "${BASE_URL}" --security-level "${SECURITY_LEVEL}"
+exit $?
