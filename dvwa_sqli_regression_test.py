@@ -31,6 +31,8 @@ import sys
 import argparse
 from urllib.parse import urljoin
 from dvwa_common import log, get_csrf_token, login, set_security_level
+from pathlib import Path
+from sarif_utils import write_finding
 
 import requests
 
@@ -115,6 +117,8 @@ def main() -> int:
     parser.add_argument("--password", default=DEFAULT_PASSWORD, help="DVWA login password")
     parser.add_argument("--security-level", default="low", choices=["low", "medium", "high", "impossible"],
                          help="DVWA security level to set before testing (default: %(default)s)")
+    parser.add_argument("--finding-out", default=None,
+                         help="Path to write a JSON finding file for SARIF aggregation")
     args = parser.parse_args()
 
     session = requests.Session()
@@ -141,6 +145,17 @@ def main() -> int:
         print(f"[{flag}] id={attempt['payload']!r:50} "
               f"rows={attempt['row_count']} md5_hashes={attempt['md5_hashes_found']}")
     print("=" * 70)
+
+    if args.finding_out:
+        write_finding(
+            path=Path(args.finding_out),
+            rule_id="dvwa-sqli-001",
+            rule_name="SQL Injection",
+            message="UNION-based SQL injection via unsanitized 'id' parameter on DVWA SQL Injection endpoint",
+            uri="vulnerabilities/sqli/",
+            confirmed=confirmed,
+            security_level=args.security_level,
+        )
 
     if confirmed:
         print("[CONFIRMED] SQL Injection leaked credential data via UNION SELECT.")

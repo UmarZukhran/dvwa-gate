@@ -176,17 +176,6 @@ def main() -> int:
 
         confirmed, body, report = run_lfi_poc(session, args.base_url, args.fi_path)
 
-    if args.finding_out:
-        write_finding(
-            path=Path(args.finding_out),
-            rule_id="dvwa-lfi-001",
-            rule_name="Local File Inclusion",
-            message="LFI via unsanitized 'page' parameter on DVWA File Inclusion endpoint",
-            uri="vulnerabilities/fi/",
-            confirmed=confirmed,
-            security_level=args.security_level,
-        )
-
     except requests.exceptions.RequestException as exc:
         log(f"Request error: {exc}")
         return 2
@@ -201,6 +190,17 @@ def main() -> int:
         print(f"[{flag}] page={attempt['payload']!r:55} "
               f"len={attempt['content_length']:>6} (Δ{attempt['delta_vs_baseline']:+d})")
     print("=" * 70)
+
+    if args.finding_out:
+        write_finding(
+            path=Path(args.finding_out),
+            rule_id="dvwa-lfi-001",
+            rule_name="Local File Inclusion",
+            message="LFI via unsanitized 'page' parameter on DVWA File Inclusion endpoint",
+            uri="vulnerabilities/fi/",
+            confirmed=confirmed,
+            security_level=args.security_level,
+        )
 
     if confirmed:
         print("[CONFIRMED] Local File Inclusion leaked system file contents.")

@@ -30,6 +30,8 @@ import sys
 import argparse
 from urllib.parse import urljoin
 from dvwa_common import log, get_csrf_token, login, set_security_level
+from pathlib import Path
+from sarif_utils import write_finding
 
 import requests
 
@@ -164,6 +166,8 @@ def main() -> int:
                               "(skips auto-discovery if provided)")
     parser.add_argument("--security-level", default="low", choices=["low", "medium", "high", "impossible"],
                          help="DVWA security level to set before testing (default: %(default)s)")
+    parser.add_argument("--finding-out", default=None,
+                         help="Path to write a JSON finding file for SARIF aggregation")
     args = parser.parse_args()
 
     session = requests.Session()
@@ -193,6 +197,17 @@ def main() -> int:
         print(f"[{flag}] ip={attempt['payload']!r:40} "
               f"len={attempt['content_length']:>6} (Δ{attempt['delta_vs_baseline']:+d})")
     print("=" * 70)
+
+    if args.finding_out:
+        write_finding(
+            path=Path(args.finding_out),
+            rule_id="dvwa-cmdi-001",
+            rule_name="Command Injection",
+            message="OS command injection via unsanitized 'ip' parameter on DVWA Command Injection endpoint",
+            uri="vulnerabilities/exec/",
+            confirmed=confirmed,
+            security_level=args.security_level,
+        )
 
     if confirmed:
         print("[CONFIRMED] Command Injection executed an unauthorized command.")
