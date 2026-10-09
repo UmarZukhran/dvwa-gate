@@ -14,6 +14,8 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+from sarif_utils import build_sarif
+import json
 
 from registry import TESTS
 
@@ -21,6 +23,7 @@ from registry import TESTS
 def run_one(test: dict, base_url: str, security_level: str, log_dir: Path) -> dict:
     label = test["label"]
     log_path = log_dir / f"{test['id']}_output.log"
+    finding_path = log_dir / f"{test['id']}_finding.json"
 
     print(f"\n[*] Running {label} security regression test...")
 
@@ -28,6 +31,7 @@ def run_one(test: dict, base_url: str, security_level: str, log_dir: Path) -> di
         sys.executable, test["script"],
         "--base-url", base_url,
         "--security-level", security_level,
+        "--finding-out", str(finding_path),
     ]
 
     with open(log_path, "w") as log_file:
@@ -48,7 +52,7 @@ def run_one(test: dict, base_url: str, security_level: str, log_dir: Path) -> di
         status = "ERROR"
         print(f"[ERROR] {label} test script errored (exit {exit_code}).")
 
-    return {"id": test["id"], "label": label, "exit_code": exit_code, "status": status}
+    return {"id": test["id"], "label": label, "exit_code": exit_code, "status": status, "finding_path": finding_path}
 
 
 def main() -> int:
@@ -82,6 +86,11 @@ def main() -> int:
         if r["exit_code"] != 0:
             overall_failed = True
     print("======================================")
+
+    sarif_doc = build_sarif([r["finding_path"] for r in results])
+    sarif_path = log_dir / "dvwa-gate-results.sarif"
+    sarif_path.write_text(json.dumps(sarif_doc, indent=2))
+    print(f"\n[*] SARIF report written: {sarif_path}")
 
     return 1 if overall_failed else 0
 

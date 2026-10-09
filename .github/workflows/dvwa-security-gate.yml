@@ -83,3 +83,36 @@ jobs:
           name: dvwa-gate-evidence-${{ matrix.test_id }}
           path: "*.log"
           retention-days: 14
+
+  aggregate-sarif:
+    needs: security-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download all test evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dvwa-gate-evidence-*
+          path: findings
+          merge-multiple: true
+
+      - name: Build combined SARIF report
+        run: |
+          python3 -c "
+          import json
+          from pathlib import Path
+          from sarif_utils import build_sarif
+          finding_paths = list(Path('findings').glob('*_finding.json'))
+          doc = build_sarif(finding_paths)
+          Path('dvwa-gate-results.sarif').write_text(json.dumps(doc, indent=2))
+          "
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: dvwa-gate-results.sarif

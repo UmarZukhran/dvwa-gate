@@ -34,6 +34,8 @@ import sys
 import argparse
 from urllib.parse import urljoin
 from dvwa_common import log, get_csrf_token, login, set_security_level
+from pathlib import Path
+from sarif_utils import write_finding
 
 import requests
 
@@ -157,6 +159,8 @@ def main() -> int:
                               "(skips auto-discovery if provided)")
     parser.add_argument("--security-level", default="low", choices=["low", "medium", "high", "impossible"],
                          help="DVWA security level to set before testing (default: %(default)s)")
+    parser.add_argument("--finding-out", default=None,
+                         help="Path to write a JSON finding file for SARIF aggregation")
     args = parser.parse_args()
 
     session = requests.Session()
@@ -171,6 +175,17 @@ def main() -> int:
             return 2
 
         confirmed, body, report = run_lfi_poc(session, args.base_url, args.fi_path)
+
+    if args.finding_out:
+        write_finding(
+            path=Path(args.finding_out),
+            rule_id="dvwa-lfi-001",
+            rule_name="Local File Inclusion",
+            message="LFI via unsanitized 'page' parameter on DVWA File Inclusion endpoint",
+            uri="vulnerabilities/fi/",
+            confirmed=confirmed,
+            security_level=args.security_level,
+        )
 
     except requests.exceptions.RequestException as exc:
         log(f"Request error: {exc}")
