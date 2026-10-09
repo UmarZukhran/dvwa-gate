@@ -30,7 +30,7 @@ They're intentionally split. A single workflow that both fails on findings *and*
 Requires Docker, Python 3.10+, and the `requests` package (`pip install requests`).
 
 ```bash
- git clone git@github.com:UmarZukhran/dvwa-gate.git
+ git clone https://github.com/UmarZukhran/dvwa-gate.git
  cd dvwa-gate
 ```
 
