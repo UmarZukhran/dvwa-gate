@@ -1,24 +1,3 @@
-# .github/workflows/dvwa-lfi-security-gate.yml
-#
-# DevSecOps example: a security regression test wired in as a CI gate.
-#
-# What this demonstrates (the core DevSecOps automation pattern):
-#   1. Spin up the target application as an ephemeral service container.
-#   2. Wait for it to be ready (health check / readiness polling).
-#   3. Run a security test against it as a normal CI step.
-#   4. Let the test's exit code decide pass/fail for the build.
-#   5. Always capture evidence (logs/artifacts) regardless of outcome.
-#
-# This workflow runs independent regression tests
-# against the same DVWA instance, deliberately written so you can see
-# BOTH outcomes per test:
-#   - security=low  -> the gate SHOULD fail (exit 1) -- vulns are present
-#   - security=high -> the gate SHOULD pass (exit 0) -- DVWA patches them
-#
-# Trigger it manually from the Actions tab and pick the level you want
-# to test -- no need to edit this file to flip between them. The gate
-# only passes if ALL tests come back clean.
-
 name: DVWA Security Gate
 
 on:
@@ -32,147 +11,75 @@ on:
         required: true
         default: "low"
         type: choice
-        options:
-          - low
-          - medium
-          - high
-          - impossible
+        options: [low, medium, high, impossible]
 
 jobs:
-  security-regression-tests:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build_matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test matrix from registry.py
+        id: build_matrix
+        run: |
+          MATRIX=$(python3 -c "import json; from registry import TESTS; print(json.dumps([t['id'] for t in TESTS]))")
+          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
 
-    # The service container: GitHub Actions starts this alongside the job
-    # and tears it down automatically when the job ends. This is the CI
-    # equivalent of `docker run` -- no manual cleanup needed.
+  security-tests:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # let every test run to completion, don't cancel siblings on first red
+      matrix:
+        test_id: ${{ fromJson(needs.plan.outputs.matrix) }}
+
     services:
       dvwa:
         image: vulnerables/web-dvwa
         ports:
           - 8080:80
-        # No official healthcheck in this image, so we poll manually below
-        # instead of relying on `options: --health-cmd`.
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install requests
+      - run: pip install requests
 
       - name: Wait for DVWA to be ready
         run: |
-          echo "Polling http://localhost:8080/login.php ..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8080/login.php > /dev/null; then
-              echo "DVWA is up after ${i}s"
-              exit 0
+              echo "DVWA is up after ${i}s"; exit 0
             fi
             sleep 2
           done
-          echo "::error::DVWA did not become ready in time"
-          exit 1
+          echo "::error::DVWA did not become ready in time"; exit 1
 
       - name: Initialize DVWA database
-        # DVWA needs its DB created once before login works -- this is the
-        # same "setup.php -> Create/Reset Database" step you did manually,
-        # just automated as an HTTP POST so CI can do it unattended.
         run: |
           curl -s -c cookies.txt http://localhost:8080/setup.php -o setup_page.html
           TOKEN=$(grep -oP "name='user_token' value='\K[a-f0-9]+" setup_page.html)
           curl -s -b cookies.txt -X POST http://localhost:8080/setup.php \
             --data-urlencode "create_db=Create / Reset Database" \
             --data-urlencode "user_token=${TOKEN}" > /dev/null
-          echo "Database initialized."
 
-      - name: Run LFI security regression test
-        id: lfi_test
-        env:
-          # workflow_dispatch gives us the picked value; push/pull_request
-          # triggers have no input, so default to "low" -- the worst case,
-          # which is the right default for an unattended regression gate.
-          SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
-        run: |
-          set -o pipefail
-          echo "Testing at security level: ${SECURITY_LEVEL}"
-          python3 dvwa_lfi_regression_test.py \
-            --base-url http://localhost:8080 \
-            --security-level "${SECURITY_LEVEL}" 2>&1 | tee lfi_output.log
-        continue-on-error: true   # capture the exit code instead of failing the step immediately
-
-      - name: Run SQLi security regression test
-        id: sqli_test
+      - name: Run ${{ matrix.test_id }} security regression test
         env:
           SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
         run: |
-          set -o pipefail
-          echo "Testing at security level: ${SECURITY_LEVEL}"
-          python3 dvwa_sqli_regression_test.py \
+          python3 run_security_gate.py \
             --base-url http://localhost:8080 \
-            --security-level "${SECURITY_LEVEL}" 2>&1 | tee sqli_output.log
-        continue-on-error: true   # same reasoning as the LFI step -- capture, don't fail yet
+            --security-level "${SECURITY_LEVEL}" \
+            --only "${{ matrix.test_id }}"
 
-      - name: Run CMDI security regression test
-        id: cmdi_test
-        env:
-          SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
-        run: |
-          set -o pipefail
-          echo "Testing at security level: ${SECURITY_LEVEL}"
-          python3 dvwa_cmdi_regression_test.py \
-            --base-url http://localhost:8080 \
-            --security-level "${SECURITY_LEVEL}" 2>&1 | tee cmdi_output.log
-        continue-on-error: true   # same reasoning as the LFI step -- capture, don't fail yet
-
-      - name: Upload test output as build evidence
-        if: always()   # run this even if the test step "failed" -- evidence matters most then
+      - name: Upload ${{ matrix.test_id }} test evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dvwa-security-gate-evidence
-          path: |
-            lfi_output.log
-            sqli_output.log
-            cmdi_output.log
+          name: dvwa-gate-evidence-${{ matrix.test_id }}
+          path: "*.log"
           retention-days: 14
-
-      - name: Enforce the security gate
-        # This is the actual gate: translate each test's exit code into the
-        # CI job's pass/fail. Separating this from the test steps above
-        # means we always capture logs/artifacts for BOTH tests first, then
-        # decide whether to fail the build -- rather than stopping at the
-        # first red result and never finding out about the second.
-        run: |
-          GATE_FAILED=0
-
-          if [ "${{ steps.lfi_test.outcome }}" = "failure" ]; then
-            echo "::error::LFI vulnerability confirmed."
-            GATE_FAILED=1
-          else
-            echo "No LFI leak detected."
-          fi
-
-          if [ "${{ steps.sqli_test.outcome }}" = "failure" ]; then
-            echo "::error::SQL Injection vulnerability confirmed."
-            GATE_FAILED=1
-          else
-            echo "No SQLi leak detected."
-          fi
-
-          if [ "${{ steps.cmdi_test.outcome }}" = "failure" ]; then
-            echo "::error::Command Injection vulnerability confirmed."
-            GATE_FAILED=1
-          else
-            echo "No CMDI leak detected."
-          fi
-
-          if [ "$GATE_FAILED" -eq 1 ]; then
-            echo "::error::One or more security regression tests failed -- failing the build."
-            exit 1
-          else
-            echo "All security regression tests passed -- gate passed."
-          fi
