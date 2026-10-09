@@ -1,29 +1,10 @@
 #!/usr/bin/env bash
-#
-# run-security-gate-local.sh
-#
-# Local equivalent of the GitHub Actions "DVWA LFI Security Gate" job.
-# Same four stages as the CI workflow, just run by hand on your machine
-# instead of by a GitHub-hosted runner:
-#
-#   1. Start DVWA as a disposable Docker container
-#   2. Wait for it to be ready + initialize its database
-#   3. Run the Python regression test against it
-#   4. Tear the container down and exit with the test's result
-#
-# Usage:
-#   chmod +x run-security-gate-local.sh
-#   ./run-security-gate-local.sh
-#
-# Exit code mirrors the Python script: 0 = no leak, 1 = leak confirmed,
-# 2 = something about the test itself failed (env/auth/setup problem).
+set -uo pipefail
 
-set -uo pipefail   # (not -e: we want to reach cleanup even on failure)
-
-CONTAINER_NAME="dvwa-security-gate"
 IMAGE="vulnerables/web-dvwa"
-PORT=8080
-BASE_URL="http://localhost:${PORT}"
+CONTAINER_NAME="dvwa-security-gate"
+PORT="8080"
+BASE_URL="http://127.0.0.1:${PORT}"
 
 cleanup() {
   echo "[*] Tearing down ${CONTAINER_NAME}..."
@@ -58,15 +39,42 @@ curl -s -b "${COOKIE_JAR}" -X POST "${BASE_URL}/setup.php" \
 rm -f "${COOKIE_JAR}" "${SETUP_PAGE}"
 echo "[*] Database initialized."
 
-echo "[*] Running LFI security regression test..."
-python3 dvwa_lfi_regression_test.py --base-url "${BASE_URL}"
-TEST_EXIT_CODE=$?
+# --- Run each regression test, track results independently ---
+declare -A RESULTS
 
+run_test() {
+  local label="$1"
+  local script="$2"
+
+  echo ""
+  echo "[*] Running ${label} security regression test..."
+  python3 "${script}" --base-url "${BASE_URL}"
+  local exit_code=$?
+  RESULTS["${label}"]=$exit_code
+
+  case $exit_code in
+    0) echo "[PASS] No ${label} leak/exploit detected." ;;
+    1) echo "[FAIL] ${label} vulnerability confirmed." ;;
+    *) echo "[ERROR] ${label} test script errored (exit ${exit_code})." ;;
+  esac
+}
+
+run_test "LFI"  "dvwa_lfi_regression_test.py"
+run_test "SQLi" "dvwa_sqli_regression_test.py"
+run_test "CMDi" "dvwa_cmdi_regression_test.py"
+
+# --- Summary ---
 echo ""
-case $TEST_EXIT_CODE in
-  0) echo "[PASS] No LFI leak detected." ;;
-  1) echo "[FAIL] LFI vulnerability confirmed." ;;
-  *) echo "[ERROR] Test script errored (exit ${TEST_EXIT_CODE})." ;;
-esac
+echo "======================================"
+echo " Security Gate Summary"
+echo "======================================"
+OVERALL_EXIT=0
+for label in "${!RESULTS[@]}"; do
+  code=${RESULTS[$label]}
+  if [ "$code" -ne 0 ]; then
+    OVERALL_EXIT=1
+  fi
+  printf "  %-6s exit=%s\n" "$label" "$code"
+done
+echo "======================================"
 
-exit $TEST_EXIT_CODE
