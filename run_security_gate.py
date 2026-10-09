@@ -63,6 +63,9 @@ def main() -> int:
     parser.add_argument("--log-dir", default=".", help="Directory to write per-test log files into")
     parser.add_argument("--only", default=None,
                          help="Run only the test with this id (e.g. 'lfi'), instead of all registered tests")
+    parser.add_argument("--report-only", action="store_true",
+                         help="Always exit 0 regardless of findings. Use this for SARIF reporting runs "
+                              "where you want results recorded but never want to fail the workflow itself.")
     args = parser.parse_args()
 
     log_dir = Path(args.log_dir)
@@ -91,6 +94,10 @@ def main() -> int:
     sarif_path = log_dir / "dvwa-gate-results.sarif"
     sarif_path.write_text(json.dumps(sarif_doc, indent=2))
     print(f"\n[*] SARIF report written: {sarif_path}")
+
+    if args.report_only:
+        print("[*] --report-only set: exiting 0 regardless of findings (SARIF has the real results).")
+        return 0
 
     return 1 if overall_failed else 0
 

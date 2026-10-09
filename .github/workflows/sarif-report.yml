@@ -1,0 +1,90 @@
+# .github/workflows/sarif-report.yml
+#
+# Reporting-only companion to dvwa-security-gate.yml.
+#
+# This workflow runs the same regression tests, but NEVER fails the build
+# on a confirmed vulnerability -- it only ever reports findings as SARIF
+# to GitHub's Security tab. Merge-blocking enforcement lives entirely in
+# dvwa-security-gate.yml; this workflow exists purely so a confirmed
+# finding shows up as a tracked alert, without making GitHub's code-scanning
+# status page treat "vuln found" as "scanning setup broken" (which happens
+# if you try to use one workflow for both gating and SARIF upload).
+
+name: DVWA SARIF Report
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      security_level:
+        description: "DVWA security level to test against"
+        required: true
+        default: "low"
+        type: choice
+        options: [low, medium, high, impossible]
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    services:
+      dvwa:
+        image: vulnerables/web-dvwa
+        ports:
+          - 8080:80
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Wait for DVWA to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/login.php > /dev/null; then
+              echo "DVWA is up after ${i}s"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::DVWA did not become ready in time"; exit 1
+
+      - name: Initialize DVWA database
+        run: |
+          curl -s -c cookies.txt http://localhost:8080/setup.php -o setup_page.html
+          TOKEN=$(grep -oP "name='user_token' value='\K[a-f0-9]+" setup_page.html)
+          curl -s -b cookies.txt -X POST http://localhost:8080/setup.php \
+            --data-urlencode "create_db=Create / Reset Database" \
+            --data-urlencode "user_token=${TOKEN}" > /dev/null
+
+      - name: Run all tests and build SARIF (report-only, never fails)
+        env:
+          SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
+        run: |
+          python3 run_security_gate.py \
+            --base-url http://localhost:8080 \
+            --security-level "${SECURITY_LEVEL}" \
+            --report-only
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: dvwa-gate-results.sarif
+
+      - name: Upload raw logs and SARIF as build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dvwa-sarif-report-evidence
+          path: |
+            *.log
+            *.sarif
+          retention-days: 14
