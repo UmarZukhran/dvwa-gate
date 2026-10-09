@@ -16,14 +16,6 @@ Automated regression testing against [DVWA](https://github.com/digininja/DVWA) (
 
 Adding a new vulnerability class only requires writing one test script and adding one line to `registry.py` — nothing else needs manual wiring (no workflow edits, no shell script edits).
 
-dvwa_common.py # shared login/CSRF/security-level helpers
-dvwa_*_regression_test.py # one test per vuln class (LFI, SQLi, CMDi)
-registry.py # central list of registered tests
-run_security_gate.py # shared runner: executes tests, aggregates results, builds SARIF
-sarif_utils.py # minimal SARIF 2.1.0 report builder
-run-security-gate-local.sh # local runner (spin up → init → test → teardown)
-
-
 **Two separate GitHub Actions workflows, by design:**
 
 | Workflow | Purpose | Fails the build on a finding? |
