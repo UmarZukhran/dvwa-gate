@@ -98,6 +98,7 @@ jobs:
           # which is the right default for an unattended regression gate.
           SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
         run: |
+          set -o pipefail
           echo "Testing at security level: ${SECURITY_LEVEL}"
           python3 dvwa_lfi_regression_test.py \
             --base-url http://localhost:8080 \
@@ -109,6 +110,7 @@ jobs:
         env:
           SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
         run: |
+          set -o pipefail
           echo "Testing at security level: ${SECURITY_LEVEL}"
           python3 dvwa_sqli_regression_test.py \
             --base-url http://localhost:8080 \
@@ -120,6 +122,7 @@ jobs:
         env:
           SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
         run: |
+          set -o pipefail
           echo "Testing at security level: ${SECURITY_LEVEL}"
           python3 dvwa_cmdi_regression_test.py \
             --base-url http://localhost:8080 \
