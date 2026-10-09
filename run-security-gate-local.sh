@@ -33,7 +33,10 @@ echo "[*] Initializing DVWA database..."
 COOKIE_JAR=$(mktemp)
 SETUP_PAGE=$(mktemp)
 curl -s -c "${COOKIE_JAR}" "${BASE_URL}/setup.php" -o "${SETUP_PAGE}"
-TOKEN=$(grep -oP "name='user_token' value='\K[a-f0-9]+" "${SETUP_PAGE}")
+TOKEN=$(sed -n "s/.*name='user_token' value='\([a-f0-9]*\)'.*/\1/p" "${SETUP_PAGE}")
+if [ -z "${TOKEN}" ]; then
+  echo "[!] Could not extract CSRF token from setup.php — DB init will likely fail." >&2
+fi
 curl -s -b "${COOKIE_JAR}" -X POST "${BASE_URL}/setup.php" \
   --data-urlencode "create_db=Create / Reset Database" \
   --data-urlencode "user_token=${TOKEN}" > /dev/null
