@@ -115,6 +115,17 @@ jobs:
             --security-level "${SECURITY_LEVEL}"
         continue-on-error: true   # same reasoning as the LFI step -- capture, don't fail yet
 
+        - name: Run CMDI security regression test
+          id: cmdi_test
+          env:
+            SECURITY_LEVEL: ${{ github.event.inputs.security_level || 'low' }}
+          run: |
+            echo "Testing at security level: ${SECURITY_LEVEL}"
+            python3 dvwa_cmdi_regression_test.py \
+              --base-url http://localhost:8080 \
+              --security-level "${SECURITY_LEVEL}"
+          continue-on-error: true   # same reasoning as the LFI step -- capture, don't fail yet
+
       - name: Upload test output as build evidence
         if: always()   # run this even if the test step "failed" -- evidence matters most then
         uses: actions/upload-artifact@v4
@@ -145,6 +156,13 @@ jobs:
             GATE_FAILED=1
           else
             echo "No SQLi leak detected."
+          fi
+
+          if [ "${{ steps.cmdi_test.outcome }}" = "failure" ]; then
+            echo "::error::Command Injection vulnerability confirmed."
+            GATE_FAILED=1
+          else
+            echo "No CMDI leak detected."
           fi
 
           if [ "$GATE_FAILED" -eq 1 ]; then
