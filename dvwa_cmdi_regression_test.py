@@ -93,7 +93,10 @@ def submit_payload(session: requests.Session, exec_url: str, ip_value: str) -> r
     Submits the Command Injection form. DVWA's exec page expects a POST with
     `ip` and `Submit`, plus a CSRF token on versions that include one.
     """
-    token = get_csrf_token(session, exec_url)
+    get_resp = session.get(exec_url, timeout=10)
+    get_resp.raise_for_status()
+    token = get_csrf_token(get_resp.text)
+    
     data = {"ip": ip_value, "Submit": "Submit"}
     if token:
         data["user_token"] = token

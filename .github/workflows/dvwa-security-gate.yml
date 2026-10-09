@@ -112,7 +112,7 @@ jobs:
           echo "Testing at security level: ${SECURITY_LEVEL}"
           python3 dvwa_sqli_regression_test.py \
             --base-url http://localhost:8080 \
-            --security-level "${SECURITY_LEVEL}" 2>&1 | tee lfi_output.log
+            --security-level "${SECURITY_LEVEL}" 2>&1 | tee sqli_output.log
         continue-on-error: true   # same reasoning as the LFI step -- capture, don't fail yet
 
       - name: Run CMDI security regression test
@@ -123,7 +123,7 @@ jobs:
           echo "Testing at security level: ${SECURITY_LEVEL}"
           python3 dvwa_cmdi_regression_test.py \
             --base-url http://localhost:8080 \
-            --security-level "${SECURITY_LEVEL}" 2>&1 | tee lfi_output.log
+            --security-level "${SECURITY_LEVEL}" 2>&1 | tee cmdi_output.log
         continue-on-error: true   # same reasoning as the LFI step -- capture, don't fail yet
 
       - name: Upload test output as build evidence
