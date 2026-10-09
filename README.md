@@ -34,6 +34,11 @@ Requires Docker, Python 3.10+, and the `requests` package (`pip install requests
  cd dvwa-gate
 ```
 
+```bash
+ docker run -d --name dvwa-security-gate -p 8080:80 vulnerables/web-dvwa
+ ./run-security-gate-local.sh
+```
+
 ## A note on the open Security tab alerts
 
 This repo's Security tab shows open "Error" alerts for LFI, SQLi, and Command Injection. **That's expected, not a problem to fix** — DVWA is deliberately vulnerable at `security=low`, and these alerts are proof the SARIF reporting pipeline correctly detects and reports real findings. They're left open intentionally to demonstrate the tooling works end-to-end, not because anything here is meant to be "fixed."
